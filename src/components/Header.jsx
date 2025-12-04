@@ -70,6 +70,11 @@ export default function Header({ stats, onExport, onImport, onReset, isOwnCollec
           </div>
         </Link>
 
+        <nav className="header-nav">
+          <Link to="/" className="nav-link">Collection</Link>
+          <Link to="/decks" className="nav-link">Decks</Link>
+        </nav>
+
         {stats && (
           <div className="stats-bar">
             <div className="stat-item">

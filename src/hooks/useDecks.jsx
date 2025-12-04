@@ -1,0 +1,129 @@
+import { useState, useEffect, useCallback } from 'react';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, limit, where, updateDoc, arrayUnion, arrayRemove, getDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+import { useAuth } from './useAuth';
+import cardData from '../cardData.json';
+
+export function useDecks() {
+  const { user } = useAuth();
+  const [publicDecks, setPublicDecks] = useState([]);
+  const [myDecks, setMyDecks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Load public decks
+  useEffect(() => {
+    const q = query(
+      collection(db, 'decks'),
+      where('isPublic', '==', true),
+      orderBy('upvotes', 'desc'),
+      limit(50)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const decks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPublicDecks(decks);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Load user's decks
+  useEffect(() => {
+    if (!user) {
+      setMyDecks([]);
+      return;
+    }
+    const q = query(
+      collection(db, 'decks'),
+      where('userId', '==', user.uid),
+      orderBy('updatedAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const decks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setMyDecks(decks);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const saveDeck = useCallback(async (deckData, deckId = null) => {
+    if (!user) return null;
+    
+    const id = deckId || doc(collection(db, 'decks')).id;
+    const colors = [...new Set(deckData.cards.flatMap(c => {
+      const card = cardData.find(cd => cd.id === c.cardId);
+      return card?.color?.split(', ') || [];
+    }))];
+
+    const deck = {
+      ...deckData,
+      colors,
+      userId: user.uid,
+      username: user.displayName || 'Anonymous',
+      updatedAt: new Date().toISOString(),
+      ...(deckId ? {} : { 
+        createdAt: new Date().toISOString(),
+        upvotes: 0,
+        upvotedBy: [],
+        isPublic: deckData.isPublic ?? true
+      })
+    };
+
+    await setDoc(doc(db, 'decks', id), deck, { merge: true });
+    return id;
+  }, [user]);
+
+  const deleteDeck = useCallback(async (deckId) => {
+    if (!user) return;
+    await deleteDoc(doc(db, 'decks', deckId));
+  }, [user]);
+
+  const toggleUpvote = useCallback(async (deckId) => {
+    if (!user) return;
+    const deckRef = doc(db, 'decks', deckId);
+    const deckSnap = await getDoc(deckRef);
+    if (!deckSnap.exists()) return;
+
+    const upvotedBy = deckSnap.data().upvotedBy || [];
+    const hasUpvoted = upvotedBy.includes(user.uid);
+
+    await updateDoc(deckRef, {
+      upvotedBy: hasUpvoted ? arrayRemove(user.uid) : arrayUnion(user.uid),
+      upvotes: hasUpvoted ? (deckSnap.data().upvotes || 1) - 1 : (deckSnap.data().upvotes || 0) + 1
+    });
+  }, [user]);
+
+  const getDeck = useCallback(async (deckId) => {
+    const deckSnap = await getDoc(doc(db, 'decks', deckId));
+    if (deckSnap.exists()) {
+      return { id: deckSnap.id, ...deckSnap.data() };
+    }
+    return null;
+  }, []);
+
+  return {
+    publicDecks,
+    myDecks,
+    loading,
+    saveDeck,
+    deleteDeck,
+    toggleUpvote,
+    getDeck
+  };
+}
+
+export function validateDeck(cards) {
+  const totalCards = cards.reduce((sum, c) => sum + c.quantity, 0);
+  const errors = [];
+  
+  if (totalCards !== 52) {
+    errors.push(`Deck must have exactly 52 cards (currently ${totalCards})`);
+  }
+  
+  cards.forEach(c => {
+    if (c.quantity > 4) {
+      const card = cardData.find(cd => cd.id === c.cardId);
+      errors.push(`${card?.name || c.cardId} exceeds 4 copies (${c.quantity})`);
+    }
+  });
+
+  return { valid: errors.length === 0, errors, totalCards };
+}
