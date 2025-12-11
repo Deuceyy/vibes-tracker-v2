@@ -4,6 +4,7 @@ import Header from './Header';
 import CardModal from './CardModal';
 
 const RARITY_ORDER = { 'Common': 1, 'Uncommon': 2, 'Rare': 3, 'Epic': 4 };
+const SET_ORDER = { 'Eth': 1, 'Lotl': 2 };
 const VARIANT_LABELS = { normal: 'N', foil: 'F', arctic: 'A', sketch: 'S' };
 
 export default function CollectionPage() {
@@ -30,7 +31,7 @@ export default function CollectionPage() {
     set: 'All',
     owned: 'All',
     variant: 'All',
-    sort: 'name-asc'
+    sort: 'set-asc'
   });
 
   const [selectedCard, setSelectedCard] = useState(null);
@@ -81,6 +82,12 @@ export default function CollectionPage() {
     cards.sort((a, b) => {
       switch (field) {
         case 'name': return mult * a.name.localeCompare(b.name);
+        case 'set': {
+          // Sort by set first, then by set number
+          const setDiff = (SET_ORDER[a.set] || 99) - (SET_ORDER[b.set] || 99);
+          if (setDiff !== 0) return mult * setDiff;
+          return mult * ((a.setNumber ?? 999) - (b.setNumber ?? 999));
+        }
         case 'id': return mult * ((a.setNumber ?? 999) - (b.setNumber ?? 999));
         case 'owned': return mult * (getTotalOwned(a.id) - getTotalOwned(b.id));
         case 'cost': return mult * ((a.cost?.amount ?? 999) - (b.cost?.amount ?? 999));
@@ -193,6 +200,8 @@ export default function CollectionPage() {
             <div className="filter-group small">
               <label className="filter-label">Sort By</label>
               <select className="search-input" value={filters.sort} onChange={(e) => updateFilter('sort', e.target.value)}>
+                <option value="set-asc">Set Order (ETH → LOTL)</option>
+                <option value="set-desc">Set Order (LOTL → ETH)</option>
                 <option value="name-asc">Name (A-Z)</option>
                 <option value="name-desc">Name (Z-A)</option>
                 <option value="id-asc">Set # (1-99)</option>
