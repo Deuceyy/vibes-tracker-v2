@@ -18,31 +18,103 @@ app = Flask(__name__)
 DB_FILE = os.environ.get("DB_PATH", "vibes_tracker.sqlite")
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Card Database - All Vibes TCG Cards
+# Card Database - All Vibes TCG Cards (from official card data)
 # ─────────────────────────────────────────────────────────────────────────────
 
 CARD_LIST = [
-    "Mount Fuji", "Samantha Feathers, Pop Idol", "Penguin Who Bakes", "Lil Moonlight",
-    "Lil Frosty", "Lil With Balloon", "Lil Zoomer", "Lil Daydreamer", "Green Mega Penguin",
-    "Tina Who Tears", "Lil Extrovert", "Colosseum", "Bounce House Rod", "Lil Bellyacher",
-    "Popcorn Penguin", "Lil Lookout", "The Champion of Clouds", "Lil Waker", "Lil Singer",
-    "Layer a Lasagna", "Not Today!", "The Rampage of Duels", "Lil Wisher", "Lil Farmer",
-    "Penguin a Lasagna", "Not Today", "The Warmest of Hugs", "Potion Commotion",
-    "Not Holding", "Angel Ink Squad", "Inspiring Story", "Lil Singer", "Peace Out Penguin",
-    "Heads I Win, Tails You Lose", "Toss Up", "Bashful Swordsman Penguin", "Silent Snow Globe",
-    "Not a Rod Anymore!", "Serene Penguin", "Prosperous Penguin", "Simon Smasher",
-    "What a Twist!", "Adventure Squad", "Lil Caffeine", "Lil Cozy", "Lil Floaty",
-    "Lil Groovy", "Lil Happy", "Lil Hopeful", "Lil Joyful", "Lil Lucky", "Lil Mellow",
-    "Lil Peaceful", "Lil Playful", "Lil Radiant", "Lil Serene", "Lil Snuggly",
-    "Lil Sparkly", "Lil Sunny", "Lil Sweet", "Lil Tranquil", "Lil Warm", "Lil Whimsical",
-    "Lil Zen", "Yum Yum Penguin", "Belly Flop", "Cosmic Penguin", "Disco Penguin",
-    "Festival Penguin", "Fountain Penguin", "Galaxy Penguin", "Glitter Penguin",
-    "Harmony Penguin", "Ice Cream Penguin", "Jubilee Penguin", "Karaoke Penguin",
-    "Lantern Penguin", "Melody Penguin", "Neon Penguin", "Orchestra Penguin",
-    "Party Penguin", "Quantum Penguin", "Rainbow Penguin", "Starlight Penguin",
-    "Thunder Penguin", "Umbrella Penguin", "Velvet Penguin", "Waterfall Penguin",
-    "Xylophone Penguin", "Yoga Penguin", "Zephyr Penguin", "Big Belly Penguin",
-    "Bizbunk", "Alxi"
+    "A Drop in Attention", "Absent-Minded Penguin", "Abstract Penguin", "Adventure Squad",
+    "Again, Again", "Aha Penguin", "Amazing Penguin", "Ambitious Penguin",
+    "An Offer You Can't Refuse", "Arches", "Ascending Penguin", "Balanced Penguin",
+    "Bamboo Penguin", "Band Together", "Bashful Swordsman Penguin", "Be Big and Goofy",
+    "Be Merry and Go", "Be Weird and Silly", "Be a Lil Evil", "Bearish Sentiment",
+    "Becky Breaker", "Bedtime Story", "Best Seats in the House", "Binkus, Who Eats the Stars",
+    "Bizmo, PhD Candidate", "Blizzby the Swift", "Blossoming Penguin", "Blue Mega Penguin",
+    "Blue Wizard Penguin", "Boat-Tying Penguin", "Bottle Penguin", "Bounce House Rod",
+    "Brainy Penguin", "Bridge With Layer Zero", "Bubbles, the Great and Powerful",
+    "Buddy Up", "Build a Burrito", "Bunkus, Who Is the Stars", "Calligraphy Rod",
+    "Cannonball Penguin", "Capture the Moment", "Carnival Penguin",
+    "Chalice of Everflowing Pudge", "Change Perspective", "Charming Swordsman Penguin",
+    "Chase Your Dreams", "Check the Yellow Pages", "Cheeky Sidequest", "Chef Penguin",
+    "Chisel from Stone", "Chub, Who Lives for Action", "Chubopolis Unleashed",
+    "Clean Up Good", "Colosseum", "Contemplation Penguin", "Cookies of Truth",
+    "Cooking Penguin", "Cool Story Bro!", "Cross the River", "Curious Penguin",
+    "Dashing Swordsman Penguin", "Daydreaming Penguin", "Demolition Penguin",
+    "Dima the Destroyer", "Distract", "Do a Lil Math", "Don't Trust, Verify",
+    "Dragonrider Penguin", "Dummy Thicc Disco Ball", "Dunk a Donut", "Easter Island",
+    "Eiffel Tower", "Enter the Bounce House Dimension", "Escape in Time",
+    "Everybody Stay Clam", "Extrovert Penguin", "Fact-Finding Penguin", "Feather Forecast",
+    "Fishing Trip", "Flip a Flapjack", "Flop, Drop, and Roll", "Flower-Arranging Penguin",
+    "Flying Penguin", "Force of Lil", "Four of a Kind", "Freezing Rod", "Frolic",
+    "Frosterous the Great", "Frosty the Penguin", "Galaxy Penguin", "Gardenkeeper Penguin",
+    "Gather Together", "Glass Act", "Glow and Behold", "Go With the Flow",
+    "Goodnight, Pengs", "Got 'Em!", "Great Wall", "Green Mega Penguin",
+    "Green Wizard Penguin", "Grow Together", "Half Past Chill",
+    "Have a Philosophical Debate", "Have an Encore", "Heads I Win, Tails You Lose",
+    "Here's Pengy", "Hit the High Note", "Honey, I Shrunk the Pengs", "Hot Rod",
+    "Hungry Penguin", "Hyper Penguin", "Inconceivable!", "Ingenious Idea",
+    "Inquisitive Penguin", "Insomniac Penguin", "Inspiring Story", "Into the Night",
+    "Introvert Penguin", "Is This a Rod", "Jealous Penguin", "Jeepers!", "Join the Trend",
+    "Josephine, Party Queen", "Jubilant Penguin", "Juggling Penguin", "Karate Penguin",
+    "Keep Digging", "Keyturning Penguin", "Koi Penguin", "Layer Two Technology",
+    "Layer a Lasagna", "Leaning Tower", "Lil Baker", "Lil Bamboo", "Lil Bellyacher",
+    "Lil Chef", "Lil Comic", "Lil Contemplator", "Lil Daydreamer", "Lil Detective",
+    "Lil Dragonrider", "Lil Drippy", "Lil Extrovert", "Lil Frosty", "Lil Gardenkeeper",
+    "Lil Insomniac", "Lil Introvert", "Lil Jelly", "Lil Juggler", "Lil Leafrider",
+    "Lil Lifeguard", "Lil Lodger", "Lil Lookout", "Lil Lucky", "Lil Milkmaid",
+    "Lil Moonlight", "Lil Painter", "Lil Paper", "Lil Quaker", "Lil Raker", "Lil Rock",
+    "Lil Scissors", "Lil Shaker", "Lil Singer", "Lil Skydiver", "Lil Solo Adventurer",
+    "Lil Space Cadet", "Lil Stargazer", "Lil Surprised", "Lil Waker", "Lil Who Blooms",
+    "Lil Who Breaks Free", "Lil Who Can't Stop Eating", "Lil Who Hoops", "Lil Who Scoops",
+    "Lil Who Slides", "Lil Who's Down Bad", "Lil Window Washer", "Lil With Balloon",
+    "Lil Zoomer", "Look Inside", "Lost in the Sauce", "Luca Saves the Penguins",
+    "Lucky Penguin", "Marilyl", "Melt a Marshmallow", "Miss Chief, Keeper of Keys",
+    "Miss Place, Forgetter of Things", "Miss Tweeny", "Moonlit Penguin", "Mount Fuji",
+    "Mukbang Penguin", "Mysterious Penguin", "Mystery of the Everlasting Fish",
+    "Napengulon, Legendary Host", "No Way!", "Not Today!", "Not Your Keys",
+    "Not a Rod Anymore!", "Nyan Cat", "One With History", "Ooo, Shiny", "Opera House",
+    "Orb of Hopium", "Ornate Swordsman Penguin", "Overwhelm With Fish",
+    "Overwhelm With Knowledge", "Pack Attack", "Painter Penguin", "Paper Penguin",
+    "Parasol Rod", "Peace Out Penguin", "Pebblington the Brave",
+    "Penguin Caught in Fishing Line", "Penguin That Doesn't Mind Goodbyes",
+    "Penguin Who Bakes", "Penguin Who Breaks the Fourth Wall",
+    "Penguin Who Carries the Berg", "Penguin Who Explores the Reef",
+    "Penguin Who Is the Garden", "Penguin Who Might Bring a Plus One",
+    "Penguin Who Quakes", "Penguin Who Rakes", "Penguin Who Runs the Lift",
+    "Penguin Who Shakes", "Penguin Who Spills the Tea", "Penguin Who Wakes",
+    "Penguin Who Zooms", "Penguin Who's Late to the Party", "Penguin Who's OK",
+    "Penguin Whose Belly Aches", "Penguin Whose Garden Grows",
+    "Penguin With Great Mystique", "Penguin With Hoops", "Penguin With Lil Mystique",
+    "Penguin With a Flag", "Penguin With a Rod of His Own", "Penguin in Color",
+    "Penguin of the Falling Leaves", "Peppy Penguin", "Petite Pourer", "Phone Home",
+    "Pleepem, Who Stands Alone", "Pointsrich Penguin", "Pongo", "Popcorn Penguin",
+    "Poppin' Pete", "Porthole Penguin", "Pot-Stirring Penguin", "Potion Commotion",
+    "Prepare for a Wild Night", "Primo Wizard Penguin", "Prosperous Penguin",
+    "Pudgticate", "Pudgy Man Rod", "Purple Mega Penguin", "Purple Wizard Penguin",
+    "Put Your Flippers in the Air", "Put on a Show", "Questionable Methods",
+    "Rad Chill, Who's Super Cool", "Raid the Snacks", "Red Mega Penguin",
+    "Red Wizard Penguin", "Ribbon-Dancing Penguin", "Ride the Train",
+    "Risk-Taking Penguin", "Rock Penguin", "Rod of Camaraderie",
+    "Rod of Charming Melodies", "Rod of Cheesy Slices", "Romulus Who Roams",
+    "Run-It-Back Penguin", "Samantha Feathers, Pop Idol", "Scissors Penguin",
+    "Screaming Penguin", "See the Berg", "Send It Too Hard", "Send Off",
+    "Serene Penguin", "Shapenguzad", "Sheeeesh!", "Shocking Penguin", "Shy Penguin",
+    "Sick Pull!", "Silent Snow Globe", "Simon Smasher", "Sir Vibesalil", "Sir Vibesalot",
+    "Sir Waddlesworth", "Sketching Penguin", "Skydiving Penguin", "Sliding Penguin",
+    "Sneaky Penguin", "Son of Lil", "Space Cadet Penguin", "Sphinx", "Spring Break",
+    "Spring a Leak", "Squibblestone the Wise", "Stand in the Rain", "Stargazing Penguin",
+    "Statue of Liberty", "Striking Swordsman Penguin", "Study All Night",
+    "Success Penguin", "Sunburn a Penguin", "Supportive Friend", "Teleporter Penguin",
+    "Thawing Penguin", "The Champion of Clouds", "The End of the Rainbow",
+    "The Herald of Horizons", "The Lord of Lightning", "The Savior of Skies",
+    "The Warden of Wind", "They're Twins", "Three Wise Penguins", "Throw Some Snow",
+    "Tidal Penguin", "Tie Game", "Tina Who Tears", "Too Cool for School",
+    "Too Much Caffeine", "Toss Up", "Trampoline Rod", "Trust Fall", "Tubbins the Bold",
+    "Turn to Rod", "Umbrella Rod", "Unlikely Friends", "Unmasked Penguin",
+    "Use Whoopee Cushion", "Walk the Runway", "Waterfall Penguin", "Wen?",
+    "What a Twist!", "Win the Race", "Window-Washing Penguin", "Wizard Cap",
+    "Wizard of Balloons", "Wizard of Dreams", "Wizard of Feathers", "Wizard of the Deep",
+    "Wizard of the Void", "Wut?", "Yellow Mega Penguin", "Yellow Wizard Penguin",
+    "You Dropped This", "Yum Yum", "liL mOCkeR"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,48 +123,48 @@ CARD_LIST = [
 
 ARCHETYPES = {
     "GMP Caffeine Colo": {
-        "signature": ["Green Mega Penguin", "Lil Caffeine", "Colosseum"],
-        "supporting": ["Lil Bellyacher", "Lil Extrovert", "Mount Fuji"],
+        "signature": ["Green Mega Penguin", "Too Much Caffeine", "Colosseum"],
+        "supporting": ["Lil Bellyacher", "Lil Extrovert", "Mount Fuji", "Popcorn Penguin"],
         "weight": 3
     },
     "GMP Colo": {
         "signature": ["Green Mega Penguin", "Colosseum"],
-        "supporting": ["Lil Bellyacher", "Lil Extrovert", "Lil Lookout"],
+        "supporting": ["Lil Bellyacher", "Lil Extrovert", "Lil Lookout", "Popcorn Penguin"],
         "weight": 2
     },
     "Red Removal": {
         "signature": ["Potion Commotion", "Not a Rod Anymore!", "Layer a Lasagna"],
-        "supporting": ["Not Today!", "Lil Singer", "Silent Snow Globe"],
+        "supporting": ["Not Today!", "Lil Singer", "Silent Snow Globe", "Mount Fuji"],
         "weight": 3
     },
     "Red Control": {
         "signature": ["Potion Commotion", "Layer a Lasagna"],
-        "supporting": ["Lil Moonlight", "Mount Fuji", "Inspiring Story"],
+        "supporting": ["Lil Moonlight", "Mount Fuji", "Inspiring Story", "Lil Singer"],
         "weight": 2
     },
     "Yellow Control": {
         "signature": ["Silent Snow Globe", "Bashful Swordsman Penguin"],
-        "supporting": ["Serene Penguin", "Prosperous Penguin", "What a Twist!"],
+        "supporting": ["Serene Penguin", "Prosperous Penguin", "What a Twist!", "Heads I Win, Tails You Lose"],
         "weight": 2
     },
     "Bash Globe": {
-        "signature": ["Bashful Swordsman Penguin", "Silent Snow Globe", "Colosseum"],
-        "supporting": ["Simon Smasher", "Lil Extrovert"],
+        "signature": ["Bashful Swordsman Penguin", "Silent Snow Globe"],
+        "supporting": ["Simon Smasher", "Lil Extrovert", "Toss Up"],
         "weight": 3
     },
     "Colo Bash Globe": {
         "signature": ["Colosseum", "Bashful Swordsman Penguin", "Silent Snow Globe"],
-        "supporting": ["Green Mega Penguin", "Lil Bellyacher"],
+        "supporting": ["Green Mega Penguin", "Lil Bellyacher", "Simon Smasher"],
         "weight": 3
     },
     "Belly Colo": {
-        "signature": ["Lil Bellyacher", "Colosseum", "Belly Flop"],
-        "supporting": ["Big Belly Penguin", "Lil Extrovert"],
+        "signature": ["Lil Bellyacher", "Colosseum", "Penguin Whose Belly Aches"],
+        "supporting": ["Lil Extrovert", "Popcorn Penguin"],
         "weight": 3
     },
     "Yum Yum": {
-        "signature": ["Yum Yum Penguin"],
-        "supporting": ["Lil Cozy", "Lil Snuggly", "Penguin Who Bakes"],
+        "signature": ["Yum Yum"],
+        "supporting": ["Penguin Who Bakes", "Lil Baker", "Cooking Penguin"],
         "weight": 2
     },
     "Green Control": {
@@ -102,27 +174,37 @@ ARCHETYPES = {
     },
     "Green Aggro": {
         "signature": ["Green Mega Penguin", "Lil Zoomer", "Lil Extrovert"],
-        "supporting": ["Lil Caffeine", "Bounce House Rod"],
+        "supporting": ["Too Much Caffeine", "Bounce House Rod"],
         "weight": 2
     },
     "GMP Aggro": {
         "signature": ["Green Mega Penguin", "Lil Zoomer"],
-        "supporting": ["Lil Caffeine", "Lil Extrovert", "Bounce House Rod"],
+        "supporting": ["Too Much Caffeine", "Lil Extrovert", "Bounce House Rod"],
         "weight": 2
     },
     "Blue Mill": {
-        "signature": ["Cosmic Penguin", "Galaxy Penguin"],
-        "supporting": ["Quantum Penguin", "Starlight Penguin"],
+        "signature": ["Blue Mega Penguin", "Galaxy Penguin"],
+        "supporting": ["Wizard of the Deep", "Blue Wizard Penguin"],
         "weight": 2
     },
     "Bizbunk": {
-        "signature": ["Bizbunk"],
-        "supporting": ["Lil Groovy", "Lil Mellow"],
+        "signature": ["Bizmo, PhD Candidate"],
+        "supporting": ["Brainy Penguin", "Do a Lil Math"],
         "weight": 2
     },
-    "Alxi": {
-        "signature": ["Alxi"],
-        "supporting": ["Adventure Squad", "Lil Lucky"],
+    "Swordsman": {
+        "signature": ["Bashful Swordsman Penguin", "Charming Swordsman Penguin", "Dashing Swordsman Penguin"],
+        "supporting": ["Striking Swordsman Penguin", "Ornate Swordsman Penguin"],
+        "weight": 3
+    },
+    "Purple Control": {
+        "signature": ["Purple Mega Penguin", "Potion Commotion"],
+        "supporting": ["Layer a Lasagna", "Wizard of the Void"],
+        "weight": 2
+    },
+    "Wizard": {
+        "signature": ["Wizard Cap", "Green Wizard Penguin"],
+        "supporting": ["Blue Wizard Penguin", "Red Wizard Penguin", "Yellow Wizard Penguin", "Purple Wizard Penguin"],
         "weight": 2
     }
 }
@@ -650,8 +732,6 @@ def export_csv():
 # Initialize and Run
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Always initialize DB (needed for gunicorn)
-init_db()
-
 if __name__ == "__main__":
+    init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)

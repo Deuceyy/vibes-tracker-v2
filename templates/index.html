@@ -763,9 +763,11 @@
                     return;
                 }
                 
-                const matches = cardsList.filter(c => 
-                    c.toLowerCase().includes(query)
-                ).slice(0, 10);
+                const matches = cardsList.filter(c => {
+                    const cardLower = c.toLowerCase();
+                    const words = query.split(' ').filter(w => w.length > 0);
+                    return words.every(word => cardLower.includes(word));
+                }).slice(0, 10);
                 
                 if (matches.length === 0) {
                     dropdown.classList.remove('show');
@@ -792,13 +794,11 @@
             });
         }
 
-        // Add card to seen list
+        // Add card to seen list (allows duplicates for tracking multiple copies)
         function addCard(cardName) {
-            if (!cardsSeen.includes(cardName)) {
-                cardsSeen.push(cardName);
-                renderCardsSeen();
-                detectArchetype();
-            }
+            cardsSeen.push(cardName);
+            renderCardsSeen();
+            detectArchetype();
             document.getElementById('card-search').value = '';
             document.getElementById('card-autocomplete').classList.remove('show');
         }
