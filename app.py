@@ -657,6 +657,171 @@ def winrate_vs_card():
     return jsonify(results)
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Routes - Meta Decklist Aggregation
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/meta/decklists")
+def get_meta_decklists():
+    """
+    Aggregate cards seen per opponent deck archetype to estimate decklists.
+    Only shows archetypes with 5+ matches.
+    """
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Get all archetypes with enough matches
+    cur.execute("""
+        SELECT opp_deck, COUNT(*) as match_count
+        FROM matches 
+        WHERE opp_deck != '' AND opp_deck IS NOT NULL
+        GROUP BY opp_deck
+        HAVING COUNT(*) >= 5
+        ORDER BY match_count DESC
+    """)
+    archetypes = cur.fetchall()
+    
+    result = []
+    
+    for arch in archetypes:
+        archetype_name = arch["opp_deck"]
+        match_count = arch["match_count"]
+        
+        # Get all cards seen against this archetype with frequency
+        cur.execute("""
+            SELECT cs.card_name, COUNT(*) as times_seen,
+                   COUNT(DISTINCT m.id) as matches_appeared
+            FROM cards_seen cs
+            JOIN matches m ON cs.match_id = m.id
+            WHERE m.opp_deck = %s
+            GROUP BY cs.card_name
+            ORDER BY matches_appeared DESC, times_seen DESC
+        """, (archetype_name,))
+        
+        cards_data = cur.fetchall()
+        
+        if not cards_data:
+            continue
+        
+        # Calculate appearance rate and build estimated decklist
+        estimated_deck = []
+        total_cards = 0
+        
+        for card in cards_data:
+            card_name = card["card_name"]
+            times_seen = card["times_seen"]
+            matches_appeared = card["matches_appeared"]
+            
+            # Appearance rate = % of matches this card appeared in
+            appearance_rate = round(matches_appeared / match_count * 100, 1)
+            
+            # Estimate copies based on average times seen per match it appeared
+            avg_copies = times_seen / matches_appeared if matches_appeared > 0 else 0
+            
+            # Round to likely deck count (1-4)
+            if avg_copies >= 3.5:
+                estimated_copies = 4
+            elif avg_copies >= 2.5:
+                estimated_copies = 3
+            elif avg_copies >= 1.5:
+                estimated_copies = 2
+            else:
+                estimated_copies = 1
+            
+            # Only include cards that appear in at least 20% of matches
+            if appearance_rate >= 20:
+                estimated_deck.append({
+                    "card": card_name,
+                    "estimated_copies": estimated_copies,
+                    "appearance_rate": appearance_rate,
+                    "times_seen": times_seen,
+                    "matches_appeared": matches_appeared
+                })
+                total_cards += estimated_copies
+        
+        # Trim or note if over 52
+        deck_status = "complete" if 48 <= total_cards <= 56 else "partial" if total_cards < 48 else "overflow"
+        
+        result.append({
+            "archetype": archetype_name,
+            "match_count": match_count,
+            "estimated_deck": estimated_deck[:30],  # Cap at 30 unique cards
+            "total_estimated_cards": total_cards,
+            "deck_status": deck_status,
+            "confidence": min(100, round(match_count * 5))  # More matches = higher confidence, cap at 100
+        })
+    
+    cur.close()
+    conn.close()
+    
+    return jsonify(result)
+
+@app.route("/api/meta/archetype/<archetype>")
+def get_archetype_detail(archetype):
+    """Get detailed card breakdown for a specific archetype"""
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Get match count
+    cur.execute("""
+        SELECT COUNT(*) as count FROM matches WHERE opp_deck = %s
+    """, (archetype,))
+    match_count = cur.fetchone()["count"]
+    
+    if match_count == 0:
+        cur.close()
+        conn.close()
+        return jsonify({"error": "Archetype not found"}), 404
+    
+    # Get all cards with full stats
+    cur.execute("""
+        SELECT cs.card_name, 
+               COUNT(*) as times_seen,
+               COUNT(DISTINCT m.id) as matches_appeared,
+               SUM(CASE WHEN m.result_match = 1 THEN 1 ELSE 0 END) as times_in_wins,
+               SUM(CASE WHEN m.result_match = 0 THEN 1 ELSE 0 END) as times_in_losses
+        FROM cards_seen cs
+        JOIN matches m ON cs.match_id = m.id
+        WHERE m.opp_deck = %s
+        GROUP BY cs.card_name
+        ORDER BY matches_appeared DESC, times_seen DESC
+    """, (archetype,))
+    
+    cards = []
+    for row in cur.fetchall():
+        appearance_rate = round(row["matches_appeared"] / match_count * 100, 1)
+        avg_copies = row["times_seen"] / row["matches_appeared"] if row["matches_appeared"] > 0 else 0
+        
+        cards.append({
+            "card": row["card_name"],
+            "times_seen": row["times_seen"],
+            "matches_appeared": row["matches_appeared"],
+            "appearance_rate": appearance_rate,
+            "avg_copies": round(avg_copies, 1),
+            "times_in_wins": row["times_in_wins"],
+            "times_in_losses": row["times_in_losses"]
+        })
+    
+    # Get your win rate against this archetype
+    cur.execute("""
+        SELECT COUNT(*) as total,
+               SUM(CASE WHEN result_match = 1 THEN 1 ELSE 0 END) as wins
+        FROM matches WHERE opp_deck = %s
+    """, (archetype,))
+    stats = cur.fetchone()
+    win_rate = round(stats["wins"] / stats["total"] * 100, 1) if stats["total"] > 0 else 0
+    
+    cur.close()
+    conn.close()
+    
+    return jsonify({
+        "archetype": archetype,
+        "match_count": match_count,
+        "your_win_rate": win_rate,
+        "cards": cards
+    })
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Routes - Decklists
 # ─────────────────────────────────────────────────────────────────────────────
 
