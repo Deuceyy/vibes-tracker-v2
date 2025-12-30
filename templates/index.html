@@ -803,20 +803,30 @@
             document.getElementById('card-autocomplete').classList.remove('show');
         }
 
-        // Remove card from seen list
+        // Remove one instance of a card from seen list
         function removeCard(cardName) {
-            cardsSeen = cardsSeen.filter(c => c !== cardName);
+            const index = cardsSeen.indexOf(cardName);
+            if (index > -1) {
+                cardsSeen.splice(index, 1);
+            }
             renderCardsSeen();
             detectArchetype();
         }
 
-        // Render cards seen list
+        // Render cards seen list with counts
         function renderCardsSeen() {
             const container = document.getElementById('cards-seen-list');
-            container.innerHTML = cardsSeen.map(c => `
+            
+            // Count occurrences
+            const counts = {};
+            cardsSeen.forEach(c => {
+                counts[c] = (counts[c] || 0) + 1;
+            });
+            
+            container.innerHTML = Object.entries(counts).map(([card, count]) => `
                 <div class="card-tag">
-                    ${c}
-                    <span class="remove" onclick="removeCard('${c}')">×</span>
+                    ${count > 1 ? count + 'x ' : ''}${card}
+                    <span class="remove" onclick="removeCard('${card}')">×</span>
                 </div>
             `).join('');
         }
@@ -917,7 +927,18 @@
             const matches = await res.json();
             
             const container = document.getElementById('recent-matches-list');
-            container.innerHTML = matches.slice(0, 10).map(m => `
+            container.innerHTML = matches.slice(0, 10).map(m => {
+                // Count cards for display
+                let cardsDisplay = '';
+                if (m.cards_seen?.length) {
+                    const counts = {};
+                    m.cards_seen.forEach(c => counts[c] = (counts[c] || 0) + 1);
+                    cardsDisplay = Object.entries(counts)
+                        .map(([card, count]) => count > 1 ? `${count}x ${card}` : card)
+                        .join(', ');
+                }
+                
+                return `
                 <div class="match-row">
                     <div class="match-info">
                         <span class="${m.result_match ? 'win-badge' : 'loss-badge'}">
@@ -926,12 +947,12 @@
                         <strong>${m.my_deck || 'Unknown'}</strong> vs 
                         <strong>${m.opp_deck || 'Unknown'}</strong>
                         ${m.opp_name ? `(${m.opp_name})` : ''}
-                        ${m.cards_seen?.length ? `<br><small style="color: var(--text-dim)">Cards: ${m.cards_seen.join(', ')}</small>` : ''}
+                        ${cardsDisplay ? `<br><small style="color: var(--text-dim)">Cards: ${cardsDisplay}</small>` : ''}
                     </div>
                     <div class="match-time">${m.date_time}</div>
                     <button class="delete-btn" onclick="deleteMatch(${m.id})">🗑️</button>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // Delete match
