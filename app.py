@@ -4,15 +4,14 @@ Flask backend with SQLite database
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 import json
 import os
 import csv
 import io
 from datetime import datetime
 from collections import Counter
-from urllib.parse import urlparse
 
 app = Flask(__name__)
 
@@ -266,7 +265,7 @@ def detect_archetype(cards_seen):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     return conn
 
 def init_db():
@@ -355,7 +354,7 @@ def detect_archetype_api():
 @app.route("/api/matches", methods=["GET"])
 def get_matches():
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     
     query = """
         SELECT id, date_time, my_deck, opp_name, opp_deck, 
@@ -384,7 +383,7 @@ def get_matches():
     query += " ORDER BY date_time DESC, id DESC"
     
     cur.execute(query, params)
-    matches = cur.fetchall()
+    matches = [dict(row) for row in cur.fetchall()]
     
     # Get cards seen for each match
     for match in matches:
@@ -419,7 +418,7 @@ def add_match():
         data.get("notes", "")
     ))
     
-    match_id = cur.fetchone()[0]
+    match_id = cur.fetchone()["id"]
     
     # Insert cards seen
     cards_seen = data.get("cards_seen", [])
@@ -482,7 +481,7 @@ def remove_card_from_match(match_id, card_name):
 @app.route("/api/stats")
 def get_stats():
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     
     my_deck = request.args.get("my_deck")
     date_from = request.args.get("date_from")
@@ -566,7 +565,7 @@ def get_stats():
 def cards_in_losses():
     """Cards most commonly seen in losses"""
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     my_deck = request.args.get("my_deck")
     
     query = """
@@ -594,7 +593,7 @@ def cards_in_losses():
 def cards_in_wins():
     """Cards most commonly seen in wins"""
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     my_deck = request.args.get("my_deck")
     
     query = """
@@ -622,7 +621,7 @@ def cards_in_wins():
 def winrate_vs_card():
     """Win rate when opponent plays specific cards"""
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     my_deck = request.args.get("my_deck")
     
     query = """
@@ -664,9 +663,9 @@ def winrate_vs_card():
 @app.route("/api/decklists", methods=["GET"])
 def get_decklists():
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute("SELECT * FROM decklists ORDER BY created_at DESC")
-    rows = cur.fetchall()
+    rows = [dict(row) for row in cur.fetchall()]
     cur.close()
     conn.close()
     return jsonify(rows)
@@ -704,7 +703,7 @@ def delete_decklist(deck_id):
 def get_my_deck_names():
     """Get list of deck names for dropdown"""
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute("SELECT DISTINCT name FROM decklists ORDER BY name")
     rows = cur.fetchall()
     cur.close()
@@ -719,7 +718,7 @@ def get_my_deck_names():
 def session_stats():
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     
     cur.execute("""
         SELECT * FROM matches 
@@ -727,7 +726,7 @@ def session_stats():
         ORDER BY date_time DESC, id DESC
     """, (today + " 00:00",))
     
-    matches = cur.fetchall()
+    matches = [dict(row) for row in cur.fetchall()]
     cur.close()
     conn.close()
     
@@ -748,7 +747,7 @@ def session_stats():
 @app.route("/api/export/csv")
 def export_csv():
     conn = get_db()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur = conn.cursor()
     cur.execute("""
         SELECT date_time, my_deck, opp_name, opp_deck, result_match, on_play_start, notes
         FROM matches ORDER BY date_time DESC
