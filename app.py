@@ -4,18 +4,20 @@ Flask backend with SQLite database
 """
 
 from flask import Flask, render_template, request, jsonify, send_file
-import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import json
 import os
 import csv
 import io
 from datetime import datetime
 from collections import Counter
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
-# Configuration
-DB_FILE = os.environ.get("DB_PATH", "vibes_tracker.sqlite")
+# Configuration - PostgreSQL
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Card Database - All Vibes TCG Cards (from official card data)
@@ -264,17 +266,17 @@ def detect_archetype(cards_seen):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def get_db():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL)
     return conn
 
 def init_db():
     conn = get_db()
+    cur = conn.cursor()
     
     # Main matches table
-    conn.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS matches(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             date_time TEXT,
             my_deck TEXT,
             opp_name TEXT,
@@ -286,19 +288,18 @@ def init_db():
     """)
     
     # Cards seen per match
-    conn.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS cards_seen(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id INTEGER,
-            card_name TEXT,
-            FOREIGN KEY (match_id) REFERENCES matches(id) ON DELETE CASCADE
+            id SERIAL PRIMARY KEY,
+            match_id INTEGER REFERENCES matches(id) ON DELETE CASCADE,
+            card_name TEXT
         );
     """)
     
     # User's decklists
-    conn.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS decklists(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             name TEXT,
             cards TEXT,
             created_at TEXT,
@@ -306,10 +307,13 @@ def init_db():
         );
     """)
     
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_dt ON matches(date_time);")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_my ON matches(my_deck);")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_cards_match ON cards_seen(match_id);")
+    # Create indexes if they don't exist
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_dt ON matches(date_time);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_my ON matches(my_deck);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cards_match ON cards_seen(match_id);")
+    
     conn.commit()
+    cur.close()
     conn.close()
 
 def now_iso():
@@ -351,6 +355,7 @@ def detect_archetype_api():
 @app.route("/api/matches", methods=["GET"])
 def get_matches():
     conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     
     query = """
         SELECT id, date_time, my_deck, opp_name, opp_deck, 
@@ -360,16 +365,16 @@ def get_matches():
     params = []
     
     if request.args.get("date_from"):
-        query += " AND date_time >= ?"
+        query += " AND date_time >= %s"
         params.append(request.args.get("date_from") + " 00:00")
     if request.args.get("date_to"):
-        query += " AND date_time <= ?"
+        query += " AND date_time <= %s"
         params.append(request.args.get("date_to") + " 23:59")
     if request.args.get("my_deck"):
-        query += " AND my_deck LIKE ?"
+        query += " AND my_deck LIKE %s"
         params.append("%" + request.args.get("my_deck") + "%")
     if request.args.get("opp_deck"):
-        query += " AND opp_deck LIKE ?"
+        query += " AND opp_deck LIKE %s"
         params.append("%" + request.args.get("opp_deck") + "%")
     if request.args.get("result") == "win":
         query += " AND result_match = 1"
@@ -378,17 +383,19 @@ def get_matches():
     
     query += " ORDER BY date_time DESC, id DESC"
     
-    rows = conn.execute(query, params).fetchall()
-    matches = [dict(row) for row in rows]
+    cur.execute(query, params)
+    matches = cur.fetchall()
     
     # Get cards seen for each match
     for match in matches:
-        cards = conn.execute(
-            "SELECT card_name FROM cards_seen WHERE match_id = ?",
+        cur.execute(
+            "SELECT card_name FROM cards_seen WHERE match_id = %s",
             (match["id"],)
-        ).fetchall()
+        )
+        cards = cur.fetchall()
         match["cards_seen"] = [c["card_name"] for c in cards]
     
+    cur.close()
     conn.close()
     return jsonify(matches)
 
@@ -396,10 +403,12 @@ def get_matches():
 def add_match():
     data = request.json
     conn = get_db()
+    cur = conn.cursor()
     
-    cursor = conn.execute("""
+    cur.execute("""
         INSERT INTO matches (date_time, my_deck, opp_name, opp_deck, result_match, on_play_start, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
     """, (
         now_iso(),
         data.get("my_deck", ""),
@@ -410,17 +419,18 @@ def add_match():
         data.get("notes", "")
     ))
     
-    match_id = cursor.lastrowid
+    match_id = cur.fetchone()[0]
     
     # Insert cards seen
     cards_seen = data.get("cards_seen", [])
     for card in cards_seen:
-        conn.execute(
-            "INSERT INTO cards_seen (match_id, card_name) VALUES (?, ?)",
+        cur.execute(
+            "INSERT INTO cards_seen (match_id, card_name) VALUES (%s, %s)",
             (match_id, card)
         )
     
     conn.commit()
+    cur.close()
     conn.close()
     
     return jsonify({"success": True, "id": match_id})
@@ -428,9 +438,11 @@ def add_match():
 @app.route("/api/matches/<int:match_id>", methods=["DELETE"])
 def delete_match(match_id):
     conn = get_db()
-    conn.execute("DELETE FROM cards_seen WHERE match_id = ?", (match_id,))
-    conn.execute("DELETE FROM matches WHERE id = ?", (match_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM cards_seen WHERE match_id = %s", (match_id,))
+    cur.execute("DELETE FROM matches WHERE id = %s", (match_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"success": True})
 
@@ -439,11 +451,13 @@ def add_card_to_match(match_id):
     """Add a card to an existing match"""
     card_name = request.json.get("card_name")
     conn = get_db()
-    conn.execute(
-        "INSERT INTO cards_seen (match_id, card_name) VALUES (?, ?)",
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO cards_seen (match_id, card_name) VALUES (%s, %s)",
         (match_id, card_name)
     )
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"success": True})
 
@@ -451,11 +465,13 @@ def add_card_to_match(match_id):
 def remove_card_from_match(match_id, card_name):
     """Remove a card from a match"""
     conn = get_db()
-    conn.execute(
-        "DELETE FROM cards_seen WHERE match_id = ? AND card_name = ? LIMIT 1",
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM cards_seen WHERE id = (SELECT id FROM cards_seen WHERE match_id = %s AND card_name = %s LIMIT 1)",
         (match_id, card_name)
     )
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"success": True})
 
@@ -466,6 +482,7 @@ def remove_card_from_match(match_id, card_name):
 @app.route("/api/stats")
 def get_stats():
     conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     
     my_deck = request.args.get("my_deck")
     date_from = request.args.get("date_from")
@@ -475,26 +492,36 @@ def get_stats():
     params = []
     
     if my_deck:
-        where_clauses.append("my_deck = ?")
+        where_clauses.append("my_deck = %s")
         params.append(my_deck)
     if date_from:
-        where_clauses.append("date_time >= ?")
+        where_clauses.append("date_time >= %s")
         params.append(date_from + " 00:00")
     if date_to:
-        where_clauses.append("date_time <= ?")
+        where_clauses.append("date_time <= %s")
         params.append(date_to + " 23:59")
     
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
     
     # Overall stats
-    total = conn.execute(f"SELECT COUNT(*) FROM matches WHERE {where_sql}", params).fetchone()[0]
-    wins = conn.execute(f"SELECT COUNT(*) FROM matches WHERE {where_sql} AND result_match = 1", params).fetchone()[0]
+    cur.execute(f"SELECT COUNT(*) as count FROM matches WHERE {where_sql}", params)
+    total = cur.fetchone()["count"]
+    
+    cur.execute(f"SELECT COUNT(*) as count FROM matches WHERE {where_sql} AND result_match = 1", params)
+    wins = cur.fetchone()["count"]
     
     # Play/Draw stats
-    otp_total = conn.execute(f"SELECT COUNT(*) FROM matches WHERE {where_sql} AND on_play_start = 1", params).fetchone()[0]
-    otp_wins = conn.execute(f"SELECT COUNT(*) FROM matches WHERE {where_sql} AND on_play_start = 1 AND result_match = 1", params).fetchone()[0]
-    otd_total = conn.execute(f"SELECT COUNT(*) FROM matches WHERE {where_sql} AND on_play_start = 0", params).fetchone()[0]
-    otd_wins = conn.execute(f"SELECT COUNT(*) FROM matches WHERE {where_sql} AND on_play_start = 0 AND result_match = 1", params).fetchone()[0]
+    cur.execute(f"SELECT COUNT(*) as count FROM matches WHERE {where_sql} AND on_play_start = 1", params)
+    otp_total = cur.fetchone()["count"]
+    
+    cur.execute(f"SELECT COUNT(*) as count FROM matches WHERE {where_sql} AND on_play_start = 1 AND result_match = 1", params)
+    otp_wins = cur.fetchone()["count"]
+    
+    cur.execute(f"SELECT COUNT(*) as count FROM matches WHERE {where_sql} AND on_play_start = 0", params)
+    otd_total = cur.fetchone()["count"]
+    
+    cur.execute(f"SELECT COUNT(*) as count FROM matches WHERE {where_sql} AND on_play_start = 0 AND result_match = 1", params)
+    otd_wins = cur.fetchone()["count"]
     
     # Matchup breakdown
     matchups_query = f"""
@@ -506,7 +533,8 @@ def get_stats():
         GROUP BY opp_deck
         ORDER BY total DESC
     """
-    matchup_rows = conn.execute(matchups_query, params).fetchall()
+    cur.execute(matchups_query, params)
+    matchup_rows = cur.fetchall()
     matchups = []
     for row in matchup_rows:
         matchups.append({
@@ -517,6 +545,7 @@ def get_stats():
             "win_rate": round(row["wins"] / row["total"] * 100, 1) if row["total"] > 0 else 0
         })
     
+    cur.close()
     conn.close()
     
     return jsonify({
@@ -537,6 +566,7 @@ def get_stats():
 def cards_in_losses():
     """Cards most commonly seen in losses"""
     conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     my_deck = request.args.get("my_deck")
     
     query = """
@@ -548,12 +578,14 @@ def cards_in_losses():
     params = []
     
     if my_deck:
-        query += " AND m.my_deck = ?"
+        query += " AND m.my_deck = %s"
         params.append(my_deck)
     
     query += " GROUP BY cs.card_name ORDER BY count DESC LIMIT 20"
     
-    rows = conn.execute(query, params).fetchall()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     
     return jsonify([{"card": r["card_name"], "count": r["count"]} for r in rows])
@@ -562,6 +594,7 @@ def cards_in_losses():
 def cards_in_wins():
     """Cards most commonly seen in wins"""
     conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     my_deck = request.args.get("my_deck")
     
     query = """
@@ -573,12 +606,14 @@ def cards_in_wins():
     params = []
     
     if my_deck:
-        query += " AND m.my_deck = ?"
+        query += " AND m.my_deck = %s"
         params.append(my_deck)
     
     query += " GROUP BY cs.card_name ORDER BY count DESC LIMIT 20"
     
-    rows = conn.execute(query, params).fetchall()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     
     return jsonify([{"card": r["card_name"], "count": r["count"]} for r in rows])
@@ -587,6 +622,7 @@ def cards_in_wins():
 def winrate_vs_card():
     """Win rate when opponent plays specific cards"""
     conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     my_deck = request.args.get("my_deck")
     
     query = """
@@ -599,12 +635,14 @@ def winrate_vs_card():
     params = []
     
     if my_deck:
-        query += " WHERE m.my_deck = ?"
+        query += " WHERE m.my_deck = %s"
         params.append(my_deck)
     
-    query += " GROUP BY cs.card_name HAVING total >= 3 ORDER BY total DESC"
+    query += " GROUP BY cs.card_name HAVING COUNT(*) >= 3 ORDER BY COUNT(*) DESC"
     
-    rows = conn.execute(query, params).fetchall()
+    cur.execute(query, params)
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     
     results = []
@@ -626,19 +664,21 @@ def winrate_vs_card():
 @app.route("/api/decklists", methods=["GET"])
 def get_decklists():
     conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM decklists ORDER BY created_at DESC"
-    ).fetchall()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT * FROM decklists ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
-    return jsonify([dict(row) for row in rows])
+    return jsonify(rows)
 
 @app.route("/api/decklists", methods=["POST"])
 def add_decklist():
     data = request.json
     conn = get_db()
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         INSERT INTO decklists (name, cards, created_at, is_public)
-        VALUES (?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s)
     """, (
         data.get("name", "Unnamed Deck"),
         json.dumps(data.get("cards", {})),
@@ -646,14 +686,17 @@ def add_decklist():
         1 if data.get("is_public") else 0
     ))
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"success": True})
 
 @app.route("/api/decklists/<int:deck_id>", methods=["DELETE"])
 def delete_decklist(deck_id):
     conn = get_db()
-    conn.execute("DELETE FROM decklists WHERE id = ?", (deck_id,))
+    cur = conn.cursor()
+    cur.execute("DELETE FROM decklists WHERE id = %s", (deck_id,))
     conn.commit()
+    cur.close()
     conn.close()
     return jsonify({"success": True})
 
@@ -661,7 +704,10 @@ def delete_decklist(deck_id):
 def get_my_deck_names():
     """Get list of deck names for dropdown"""
     conn = get_db()
-    rows = conn.execute("SELECT DISTINCT name FROM decklists ORDER BY name").fetchall()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT DISTINCT name FROM decklists ORDER BY name")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     return jsonify([row["name"] for row in rows])
 
@@ -673,15 +719,18 @@ def get_my_deck_names():
 def session_stats():
     today = datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     
-    rows = conn.execute("""
+    cur.execute("""
         SELECT * FROM matches 
-        WHERE date_time >= ?
+        WHERE date_time >= %s
         ORDER BY date_time DESC, id DESC
-    """, (today + " 00:00",)).fetchall()
+    """, (today + " 00:00",))
+    
+    matches = cur.fetchall()
+    cur.close()
     conn.close()
     
-    matches = [dict(row) for row in rows]
     wins = sum(1 for m in matches if m["result_match"] == 1)
     
     return jsonify({
@@ -699,10 +748,13 @@ def session_stats():
 @app.route("/api/export/csv")
 def export_csv():
     conn = get_db()
-    rows = conn.execute("""
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
         SELECT date_time, my_deck, opp_name, opp_deck, result_match, on_play_start, notes
         FROM matches ORDER BY date_time DESC
-    """).fetchall()
+    """)
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     
     output = io.StringIO()
@@ -732,6 +784,8 @@ def export_csv():
 # Initialize and Run
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Always initialize DB (required for gunicorn on Railway)
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     app.run(debug=True, host="0.0.0.0", port=5000)
