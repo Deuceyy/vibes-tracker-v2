@@ -119,6 +119,39 @@ CARD_LIST = [
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Archetype Aliases - Map similar names to canonical archetype
+# ─────────────────────────────────────────────────────────────────────────────
+
+ARCHETYPE_ALIASES = {
+    # Red variants -> Red Control
+    "red removal": "Red Control",
+    "red control": "Red Control",
+    "red lasagna": "Red Control",
+    "lasagna": "Red Control",
+    
+    # GMP variants -> GMP Colo
+    "gmp colo": "GMP Colo",
+    "gmp caffeine colo": "GMP Colo",
+    "green mega penguin colo": "GMP Colo",
+    "caffeine colo": "GMP Colo",
+    
+    # Bash Globe variants
+    "bash globe": "Bash Globe",
+    "bashful globe": "Bash Globe",
+    "colo bash globe": "Bash Globe",
+    "yellow bash": "Bash Globe",
+    
+    # Add more as needed...
+}
+
+def normalize_archetype(name):
+    """Convert archetype name to canonical form"""
+    if not name:
+        return name
+    lower = name.lower().strip()
+    return ARCHETYPE_ALIASES.get(lower, name)
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Archetype Detection - Signature Cards for Each Deck Type
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -664,38 +697,45 @@ def winrate_vs_card():
 def get_meta_decklists():
     """
     Aggregate cards seen per opponent deck archetype to estimate decklists.
-    Only shows archetypes with 5+ matches.
+    Only shows archetypes with 5+ matches. Normalizes similar archetype names.
     """
     conn = get_db()
     cur = conn.cursor()
     
-    # Get all archetypes with enough matches
+    # Get all matches with their archetypes
     cur.execute("""
-        SELECT opp_deck, COUNT(*) as match_count
-        FROM matches 
+        SELECT id, opp_deck FROM matches 
         WHERE opp_deck != '' AND opp_deck IS NOT NULL
-        GROUP BY opp_deck
-        HAVING COUNT(*) >= 5
-        ORDER BY match_count DESC
     """)
-    archetypes = cur.fetchall()
+    all_matches = cur.fetchall()
+    
+    # Group by normalized archetype
+    archetype_matches = {}
+    for match in all_matches:
+        normalized = normalize_archetype(match["opp_deck"])
+        if normalized not in archetype_matches:
+            archetype_matches[normalized] = []
+        archetype_matches[normalized].append(match["id"])
     
     result = []
     
-    for arch in archetypes:
-        archetype_name = arch["opp_deck"]
-        match_count = arch["match_count"]
+    for archetype_name, match_ids in archetype_matches.items():
+        match_count = len(match_ids)
+        
+        if match_count < 5:
+            continue
         
         # Get all cards seen against this archetype with frequency
-        cur.execute("""
+        placeholders = ','.join(['%s'] * len(match_ids))
+        cur.execute(f"""
             SELECT cs.card_name, COUNT(*) as times_seen,
                    COUNT(DISTINCT m.id) as matches_appeared
             FROM cards_seen cs
             JOIN matches m ON cs.match_id = m.id
-            WHERE m.opp_deck = %s
+            WHERE m.id IN ({placeholders})
             GROUP BY cs.card_name
             ORDER BY matches_appeared DESC, times_seen DESC
-        """, (archetype_name,))
+        """, match_ids)
         
         cards_data = cur.fetchall()
         
@@ -750,6 +790,9 @@ def get_meta_decklists():
             "confidence": min(100, round(match_count * 5))  # More matches = higher confidence, cap at 100
         })
     
+    # Sort by match count
+    result.sort(key=lambda x: x["match_count"], reverse=True)
+    
     cur.close()
     conn.close()
     
@@ -757,15 +800,16 @@ def get_meta_decklists():
 
 @app.route("/api/meta/archetype/<archetype>")
 def get_archetype_detail(archetype):
-    """Get detailed card breakdown for a specific archetype"""
+    """Get detailed card breakdown for a specific archetype (normalized)"""
     conn = get_db()
     cur = conn.cursor()
     
-    # Get match count
-    cur.execute("""
-        SELECT COUNT(*) as count FROM matches WHERE opp_deck = %s
-    """, (archetype,))
-    match_count = cur.fetchone()["count"]
+    # Get all matches that normalize to this archetype
+    cur.execute("SELECT id, opp_deck FROM matches WHERE opp_deck != '' AND opp_deck IS NOT NULL")
+    all_matches = cur.fetchall()
+    
+    match_ids = [m["id"] for m in all_matches if normalize_archetype(m["opp_deck"]) == archetype]
+    match_count = len(match_ids)
     
     if match_count == 0:
         cur.close()
@@ -773,7 +817,8 @@ def get_archetype_detail(archetype):
         return jsonify({"error": "Archetype not found"}), 404
     
     # Get all cards with full stats
-    cur.execute("""
+    placeholders = ','.join(['%s'] * len(match_ids))
+    cur.execute(f"""
         SELECT cs.card_name, 
                COUNT(*) as times_seen,
                COUNT(DISTINCT m.id) as matches_appeared,
@@ -781,10 +826,10 @@ def get_archetype_detail(archetype):
                SUM(CASE WHEN m.result_match = 0 THEN 1 ELSE 0 END) as times_in_losses
         FROM cards_seen cs
         JOIN matches m ON cs.match_id = m.id
-        WHERE m.opp_deck = %s
+        WHERE m.id IN ({placeholders})
         GROUP BY cs.card_name
         ORDER BY matches_appeared DESC, times_seen DESC
-    """, (archetype,))
+    """, match_ids)
     
     cards = []
     for row in cur.fetchall():
@@ -802,11 +847,11 @@ def get_archetype_detail(archetype):
         })
     
     # Get your win rate against this archetype
-    cur.execute("""
+    cur.execute(f"""
         SELECT COUNT(*) as total,
                SUM(CASE WHEN result_match = 1 THEN 1 ELSE 0 END) as wins
-        FROM matches WHERE opp_deck = %s
-    """, (archetype,))
+        FROM matches WHERE id IN ({placeholders})
+    """, match_ids)
     stats = cur.fetchone()
     win_rate = round(stats["wins"] / stats["total"] * 100, 1) if stats["total"] > 0 else 0
     
@@ -874,6 +919,27 @@ def get_my_deck_names():
     cur.close()
     conn.close()
     return jsonify([row["name"] for row in rows])
+
+@app.route("/api/opponents")
+def get_opponents():
+    """Get list of opponent names with their most recent deck"""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT opp_name, opp_deck, MAX(date_time) as last_played
+        FROM matches 
+        WHERE opp_name != '' AND opp_name IS NOT NULL
+        GROUP BY opp_name
+        ORDER BY last_played DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify([{
+        "name": row["opp_name"],
+        "deck": row["opp_deck"],
+        "last_played": row["last_played"]
+    } for row in rows])
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Routes - Session Stats

@@ -551,7 +551,11 @@
                     
                     <div class="form-group">
                         <label>Opponent Name</label>
-                        <input type="text" id="opp-name" placeholder="Optional">
+                        <div class="card-input-wrapper">
+                            <input type="text" id="opp-name" placeholder="Start typing..." autocomplete="off">
+                            <div class="card-autocomplete" id="opp-autocomplete"></div>
+                        </div>
+                        <small id="opp-last-deck" style="color: var(--text-dim); display: none;"></small>
                     </div>
                     
                     <div class="form-group">
@@ -849,16 +853,19 @@
         let archetypes = [];
         let cardsSeen = [];
         let myDecks = [];
+        let opponents = [];
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
             loadCards();
             loadArchetypes();
             loadMyDecks();
+            loadOpponents();
             loadSession();
             loadRecentMatches();
             setupTabs();
             setupCardAutocomplete();
+            setupOpponentAutocomplete();
         });
 
         // Tab switching
@@ -907,6 +914,77 @@
                     select.appendChild(opt);
                 });
             });
+        }
+
+        // Load opponents for autocomplete
+        async function loadOpponents() {
+            const res = await fetch('/api/opponents');
+            opponents = await res.json();
+        }
+
+        // Opponent autocomplete
+        function setupOpponentAutocomplete() {
+            const input = document.getElementById('opp-name');
+            const dropdown = document.getElementById('opp-autocomplete');
+            const lastDeckHint = document.getElementById('opp-last-deck');
+            
+            input.addEventListener('input', () => {
+                const query = input.value.toLowerCase();
+                lastDeckHint.style.display = 'none';
+                
+                if (query.length < 1) {
+                    dropdown.classList.remove('show');
+                    return;
+                }
+                
+                const matches = opponents.filter(o => 
+                    o.name.toLowerCase().includes(query)
+                ).slice(0, 8);
+                
+                if (matches.length === 0) {
+                    dropdown.classList.remove('show');
+                    return;
+                }
+                
+                dropdown.innerHTML = matches.map(o => `
+                    <div class="card-option" onclick="selectOpponent('${o.name.replace(/'/g, "\\'")}', '${(o.deck || '').replace(/'/g, "\\'")}')">
+                        <strong>${o.name}</strong>
+                        ${o.deck ? `<br><small style="color: var(--text-dim)">Last played: ${o.deck}</small>` : ''}
+                    </div>
+                `).join('');
+                dropdown.classList.add('show');
+            });
+            
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    const firstOption = dropdown.querySelector('.card-option');
+                    if (firstOption) firstOption.click();
+                }
+            });
+            
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('#opp-name') && !e.target.closest('#opp-autocomplete')) {
+                    dropdown.classList.remove('show');
+                }
+            });
+        }
+
+        function selectOpponent(name, lastDeck) {
+            document.getElementById('opp-name').value = name;
+            document.getElementById('opp-autocomplete').classList.remove('show');
+            
+            const lastDeckHint = document.getElementById('opp-last-deck');
+            if (lastDeck) {
+                lastDeckHint.textContent = `Previously played: ${lastDeck}`;
+                lastDeckHint.style.display = 'block';
+                // Auto-fill opponent deck if not already filled
+                const oppDeckInput = document.getElementById('opp-deck');
+                if (!oppDeckInput.value) {
+                    oppDeckInput.value = lastDeck;
+                }
+            } else {
+                lastDeckHint.style.display = 'none';
+            }
         }
 
         // Card autocomplete
@@ -1062,6 +1140,7 @@
             document.getElementById('opp-deck').value = '';
             document.getElementById('on-play').value = '';
             document.getElementById('notes').value = '';
+            document.getElementById('opp-last-deck').style.display = 'none';
             cardsSeen = [];
             renderCardsSeen();
             document.getElementById('archetype-suggestion').style.display = 'none';
@@ -1069,6 +1148,7 @@
             // Refresh
             loadSession();
             loadRecentMatches();
+            loadOpponents();
         }
 
         // Load session stats
