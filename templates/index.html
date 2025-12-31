@@ -1010,9 +1010,10 @@
                     return;
                 }
                 
-                dropdown.innerHTML = matches.map(c => 
-                    `<div class="card-option" onclick="addCard('${c}')">${c}</div>`
-                ).join('');
+                dropdown.innerHTML = matches.map(c => {
+                    const escaped = c.replace(/'/g, "\\'");
+                    return `<div class="card-option" onclick="addCard('${escaped}')">${c}</div>`;
+                }).join('');
                 dropdown.classList.add('show');
             });
             
@@ -1059,12 +1060,14 @@
                 counts[c] = (counts[c] || 0) + 1;
             });
             
-            container.innerHTML = Object.entries(counts).map(([card, count]) => `
+            container.innerHTML = Object.entries(counts).map(([card, count]) => {
+                const escaped = card.replace(/'/g, "\\'");
+                return `
                 <div class="card-tag">
                     ${count > 1 ? count + 'x ' : ''}${card}
-                    <span class="remove" onclick="removeCard('${card}')">×</span>
+                    <span class="remove" onclick="removeCard('${escaped}')">×</span>
                 </div>
-            `).join('');
+            `}).join('');
         }
 
         // Detect archetype from cards seen
