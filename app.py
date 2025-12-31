@@ -925,12 +925,12 @@ def get_opponents():
     """Get list of opponent names with their most recent deck"""
     conn = get_db()
     cur = conn.cursor()
+    # Use DISTINCT ON to get one row per opponent with their most recent match
     cur.execute("""
-        SELECT opp_name, opp_deck, MAX(date_time) as last_played
+        SELECT DISTINCT ON (opp_name) opp_name, opp_deck, date_time as last_played
         FROM matches 
         WHERE opp_name != '' AND opp_name IS NOT NULL
-        GROUP BY opp_name
-        ORDER BY last_played DESC
+        ORDER BY opp_name, date_time DESC
     """)
     rows = cur.fetchall()
     cur.close()
